@@ -1,4 +1,4 @@
-FROM golang:1.22 AS builder
+FROM golang:1.25 AS builder
 ARG FAS_VERSION=
 ARG FAS_COMMIT=
 COPY . .

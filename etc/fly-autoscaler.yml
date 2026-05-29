@@ -8,6 +8,10 @@ app-name: "TARGET_APP_NAME"
 # regions that the app is currently running in.
 regions: ['iad', 'ord', 'sjc']
 
+# The process group whose machines this autoscaler manages. Machines in other
+# process groups (e.g. scheduled/batch workers) are ignored. Defaults to "app".
+process-group: "app"
+
 # This expression determines the number of machines to maintain in your app
 # after each reconciliation. If the number of machines drops below this
 # threshold then more will be created by cloning one of the existing machines.
