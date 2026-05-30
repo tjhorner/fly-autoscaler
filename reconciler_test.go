@@ -522,8 +522,10 @@ func TestReconciler_Scale_Stop_FewestConnections(t *testing.T) {
 		}
 	})
 
-	// Machines missing a metric value are stopped last.
-	t.Run("MissingValueSortedLast", func(t *testing.T) {
+	// Machines missing a metric value are stopped first since they're typically
+	// newly started and not yet reporting, so we preserve machines we have data
+	// confirming are serving load.
+	t.Run("MissingValueSortedFirst", func(t *testing.T) {
 		var client mock.FlapsClient
 		client.ListFunc = func(ctx context.Context, state string) ([]*fly.Machine, error) {
 			return []*fly.Machine{
@@ -542,13 +544,13 @@ func TestReconciler_Scale_Stop_FewestConnections(t *testing.T) {
 		r.Client = &client
 		r.MinStartedMachineN, r.MaxStartedMachineN = "1", "1"
 		r.StopMetricCollector = machineMetricCollectorFunc(func(ctx context.Context, app string) (map[string]float64, error) {
-			// Machine 3 has no value, so it should be stopped last.
+			// Machine 3 has no value, so it should be stopped first.
 			return map[string]float64{"1": 5, "2": 10}, nil
 		})
 		if err := r.Reconcile(context.Background()); err != nil {
 			t.Fatal(err)
 		}
-		if got, want := stopped, []string{"1", "2"}; !slices.Equal(got, want) {
+		if got, want := stopped, []string{"3", "1"}; !slices.Equal(got, want) {
 			t.Fatalf("stopped=%v, want %v", got, want)
 		}
 	})

@@ -494,18 +494,19 @@ func (r *Reconciler) collectStopMetrics(ctx context.Context) map[string]float64 
 }
 
 // sortMachinesForStop orders machines so the ones to stop first come first:
-// ascending by metric value, with machines missing a value sorted last so we
-// only proactively stop machines we have data confirming are low. Machine ID
-// breaks ties to keep the order deterministic.
+// machines missing a metric value go to the front (they're typically newly
+// started and not yet reporting, so stopping them preserves machines we have
+// data confirming are serving load), then ascending by metric value. Machine
+// ID breaks ties to keep the order deterministic.
 func sortMachinesForStop(machines []*fly.Machine, metrics map[string]float64) {
 	sort.Slice(machines, func(i, j int) bool {
 		vi, oki := metrics[machines[i].ID]
 		vj, okj := metrics[machines[j].ID]
 		if !oki {
-			vi = math.Inf(1)
+			vi = math.Inf(-1)
 		}
 		if !okj {
-			vj = math.Inf(1)
+			vj = math.Inf(-1)
 		}
 		if vi != vj {
 			return vi < vj
