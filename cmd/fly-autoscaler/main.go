@@ -134,6 +134,10 @@ type Config struct {
 	Verbose                bool          `yaml:"verbose"`
 
 	MetricCollectors []*MetricCollectorConfig `yaml:"metric-collectors"`
+
+	// Optional collector used to rank machines when stopping them. When set,
+	// machines with the lowest value (e.g. fewest connections) are stopped first.
+	StopMetricCollector *StopMetricCollectorConfig `yaml:"stop-metric-collector"`
 }
 
 func NewConfig() *Config {
@@ -193,14 +197,28 @@ func NewConfigFromEnv() (_ *Config, err error) {
 		}
 	}
 
-	if addr := os.Getenv("FAS_PROMETHEUS_ADDRESS"); addr != "" {
+	prometheusAddress := os.Getenv("FAS_PROMETHEUS_ADDRESS")
+	prometheusToken := os.Getenv("FAS_PROMETHEUS_TOKEN")
+
+	if prometheusAddress != "" {
 		c.MetricCollectors = append(c.MetricCollectors, &MetricCollectorConfig{
 			Type:       "prometheus",
-			Address:    addr,
+			Address:    prometheusAddress,
 			MetricName: os.Getenv("FAS_PROMETHEUS_METRIC_NAME"),
 			Query:      os.Getenv("FAS_PROMETHEUS_QUERY"),
-			Token:      os.Getenv("FAS_PROMETHEUS_TOKEN"),
+			Token:      prometheusToken,
 		})
+	}
+
+	// Stopping machines by fewest connections reuses the Prometheus endpoint &
+	// token; only the per-instance query differs. Setting the query enables it.
+	if query := os.Getenv("FAS_STOP_METRIC_PROMETHEUS_QUERY"); query != "" {
+		c.StopMetricCollector = &StopMetricCollectorConfig{
+			Type:    "prometheus",
+			Address: prometheusAddress,
+			Query:   query,
+			Token:   prometheusToken,
+		}
 	}
 
 	if addr := os.Getenv("FAS_TEMPORAL_ADDRESS"); addr != "" {
@@ -286,6 +304,12 @@ func (c *Config) Validate() error {
 	for i, collectorConfig := range c.MetricCollectors {
 		if err := collectorConfig.Validate(); err != nil {
 			return fmt.Errorf("metric-collectors[%d]: %w", i, err)
+		}
+	}
+
+	if c.StopMetricCollector != nil {
+		if err := c.StopMetricCollector.Validate(); err != nil {
+			return fmt.Errorf("stop-metric-collector: %w", err)
 		}
 	}
 	return nil
@@ -447,6 +471,41 @@ func (c *MetricCollectorConfig) newPrometheusMetricCollector() (*fasprom.MetricC
 		c.Query,
 		c.Token,
 	)
+}
+
+// StopMetricCollectorConfig configures the collector used to rank machines for
+// stopping. Only the prometheus type is supported.
+type StopMetricCollectorConfig struct {
+	Type    string `yaml:"type"`
+	Address string `yaml:"address"`
+	Query   string `yaml:"query"`
+	Token   string `yaml:"token"`
+}
+
+func (c *StopMetricCollectorConfig) Validate() error {
+	switch typ := c.Type; typ {
+	case "prometheus":
+		if c.Address == "" {
+			return fmt.Errorf("prometheus address required")
+		}
+		if c.Query == "" {
+			return fmt.Errorf("prometheus query required")
+		}
+		return nil
+	case "":
+		return fmt.Errorf("type required")
+	default:
+		return fmt.Errorf("invalid type: %q", typ)
+	}
+}
+
+func (c *StopMetricCollectorConfig) NewMachineMetricCollector() (fas.MachineMetricCollector, error) {
+	switch typ := c.Type; typ {
+	case "prometheus":
+		return fasprom.NewMachineMetricCollector(c.Address, c.Query, c.Token)
+	default:
+		return nil, fmt.Errorf("invalid type: %q", typ)
+	}
 }
 
 func (c *MetricCollectorConfig) newTemporalMetricCollector() (*temporal.MetricCollector, error) {

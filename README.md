@@ -152,6 +152,25 @@ You can change the evaluated expression by setting an environment variable:
 $ FAS_STARTED_MACHINE_COUNT=queue_depth fly-autoscaler eval
 ```
 
+### Choosing which machines to stop
+
+When scaling down, the autoscaler stops machines in order of ID by default. If
+you set a stop metric collector, it instead stops the machines with the lowest
+metric value first — for example, the ones with the fewest connections — so
+their load redistributes evenly across the remaining machines instead of
+spiking one of them.
+
+The query must return one sample per machine with the machine ID in the
+`instance` label (Fly's convention). Machines with no value are stopped last,
+and if the query fails the autoscaler falls back to ID order.
+
+Setting the query enables the feature; it reuses the `FAS_PROMETHEUS_ADDRESS`
+and `FAS_PROMETHEUS_TOKEN` you've already configured.
+
+```sh
+FAS_STOP_METRIC_PROMETHEUS_QUERY = 'sum by (instance) (fly_app_concurrency{app="$APP_NAME"})'
+```
+
 ## Configuration
 
 You can also configure `fly-autoscaler` with a YAML config file if you don't

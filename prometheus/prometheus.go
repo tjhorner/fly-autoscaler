@@ -16,6 +16,10 @@ import (
 )
 
 var _ fas.MetricCollector = (*MetricCollector)(nil)
+var _ fas.MachineMetricCollector = (*MachineMetricCollector)(nil)
+
+// machineIDLabel is the Prometheus series label that holds the Fly machine ID.
+const machineIDLabel = "instance"
 
 type MetricCollector struct {
 	name  string
@@ -68,6 +72,53 @@ func (c *MetricCollector) CollectMetric(ctx context.Context, app string) (float6
 	default:
 		return 0, fmt.Errorf("unexpected prometheus result type: %T", result)
 	}
+}
+
+// MachineMetricCollector runs a Prometheus query that returns one sample per
+// machine and maps each sample to its machine ID via the "instance" label.
+type MachineMetricCollector struct {
+	query string
+	api   v1.API
+}
+
+func NewMachineMetricCollector(address, query, token string) (*MachineMetricCollector, error) {
+	client, err := newHTTPClient(api.Config{
+		Address: address,
+	}, token)
+	if err != nil {
+		return nil, err
+	}
+
+	return &MachineMetricCollector{
+		query: query,
+		api:   v1.NewAPI(client),
+	}, nil
+}
+
+func (c *MachineMetricCollector) CollectMachineMetrics(ctx context.Context, app string) (map[string]float64, error) {
+	query := fas.ExpandMetricQuery(ctx, c.query, app)
+
+	result, warnings, err := c.api.Query(context.Background(), query, time.Now())
+	if err != nil {
+		return nil, err
+	} else if len(warnings) > 0 {
+		slog.Warn("prometheus", slog.Any("warnings", warnings))
+	}
+
+	vector, ok := result.(model.Vector)
+	if !ok {
+		return nil, fmt.Errorf("unexpected prometheus result type: %T", result)
+	}
+
+	values := make(map[string]float64)
+	for _, sample := range vector {
+		id := string(sample.Metric[machineIDLabel])
+		if id == "" {
+			continue
+		}
+		values[id] = float64(sample.Value)
+	}
+	return values, nil
 }
 
 type httpClient struct {

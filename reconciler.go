@@ -49,6 +49,12 @@ type Reconciler struct {
 	// List of collectors to fetch metric values from.
 	Collectors []MetricCollector
 
+	// Optional collector used to rank started machines when stopping them.
+	// When set, the machines with the lowest metric value (e.g. fewest
+	// connections) are stopped first so their load redistributes evenly.
+	// When nil, machines are stopped in order of ID.
+	StopMetricCollector MachineMetricCollector
+
 	// Must also be registered in RegisterPromMetrics() for visibility.
 	Stats *ReconcilerStats
 }
@@ -315,8 +321,11 @@ func (r *Reconciler) stopN(ctx context.Context, startedMachines []*fly.Machine, 
 	logger := slog.With(slog.String("app", r.AppName))
 	logger.Info("begin bulk stop")
 
-	// Sort stopped machines by an arbitrary value (ID) so results are deterministic.
-	sort.Slice(startedMachines, func(i, j int) bool { return startedMachines[i].ID < startedMachines[j].ID })
+	// Stop the machines with the lowest metric value (e.g. fewest connections)
+	// first so their load redistributes evenly across the remaining machines.
+	// Falls back to ID order when no metric is configured or it can't be fetched.
+	metrics := r.collectStopMetrics(ctx)
+	sortMachinesForStop(startedMachines, metrics)
 
 	// Attempt to stop as many machines as needed.
 	remaining := n
@@ -464,6 +473,45 @@ func (r *Reconciler) evalInt(s string) (int, bool, error) {
 		return 0, true, nil
 	}
 	return int(f), true, nil
+}
+
+// collectStopMetrics fetches per-machine metric values used to rank machines for
+// stopping. Returns nil if no collector is configured or the query fails, in
+// which case stopping falls back to ID order.
+func (r *Reconciler) collectStopMetrics(ctx context.Context) map[string]float64 {
+	if r.StopMetricCollector == nil {
+		return nil
+	}
+
+	metrics, err := r.StopMetricCollector.CollectMachineMetrics(ctx, r.AppName)
+	if err != nil {
+		slog.Warn("cannot collect stop metrics, falling back to id order",
+			slog.String("app", r.AppName),
+			slog.Any("err", err))
+		return nil
+	}
+	return metrics
+}
+
+// sortMachinesForStop orders machines so the ones to stop first come first:
+// ascending by metric value, with machines missing a value sorted last so we
+// only proactively stop machines we have data confirming are low. Machine ID
+// breaks ties to keep the order deterministic.
+func sortMachinesForStop(machines []*fly.Machine, metrics map[string]float64) {
+	sort.Slice(machines, func(i, j int) bool {
+		vi, oki := metrics[machines[i].ID]
+		vj, okj := metrics[machines[j].ID]
+		if !oki {
+			vi = math.Inf(1)
+		}
+		if !okj {
+			vj = math.Inf(1)
+		}
+		if vi != vj {
+			return vi < vj
+		}
+		return machines[i].ID < machines[j].ID
+	})
 }
 
 func machinesByState(a []*fly.Machine) map[string][]*fly.Machine {

@@ -62,3 +62,17 @@ metric-collectors:
     cert-data: "-----BEGIN CERTIFICATE-----..."
     key-data: "-----BEGIN EC PRIVATE KEY-----..."
     query: 'WorkflowType="my_workflow_type"'
+
+# Optional. When stopping machines to scale down, the autoscaler stops the
+# machines with the lowest metric value first (e.g. the fewest connections) so
+# their load redistributes evenly across the remaining machines instead of
+# spiking one of them.
+#
+# The query must return one sample per machine, with the machine ID in the
+# "instance" label (Fly's convention). Machines with no value are stopped last.
+# If this is not set, machines are stopped in order of ID.
+stop-metric-collector:
+  type: "prometheus"
+  address: "https://api.fly.io/prometheus/MY_ORG"
+  query: 'sum by (instance) (fly_app_concurrency{app="$APP_NAME"})'
+  token: "FlyV1 ..."

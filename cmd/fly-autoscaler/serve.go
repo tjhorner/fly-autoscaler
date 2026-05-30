@@ -59,6 +59,15 @@ func (c *ServeCommand) Run(ctx context.Context, args []string) (err error) {
 	}
 	slog.Info("metrics collectors initialized", slog.Int("n", len(collectors)))
 
+	// Instantiate optional collector for ranking machines when stopping them.
+	var stopMetricCollector fas.MachineMetricCollector
+	if c.Config.StopMetricCollector != nil {
+		if stopMetricCollector, err = c.Config.StopMetricCollector.NewMachineMetricCollector(); err != nil {
+			return fmt.Errorf("cannot create stop metric collector: %w", err)
+		}
+		slog.Info("stop metric collector initialized")
+	}
+
 	minCreatedMachineN := c.Config.GetMinCreatedMachineN()
 	maxCreatedMachineN := c.Config.GetMaxCreatedMachineN()
 	minStartedMachineN := c.Config.GetMinStartedMachineN()
@@ -79,6 +88,7 @@ func (c *ServeCommand) Run(ctx context.Context, args []string) (err error) {
 		r.Regions = c.Config.Regions
 		r.ProcessGroup = c.Config.ProcessGroup
 		r.Collectors = collectors
+		r.StopMetricCollector = stopMetricCollector
 		return r
 	}
 	p.AppName = c.Config.AppName
