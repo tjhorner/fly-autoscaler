@@ -49,7 +49,7 @@ func (c *MetricCollector) Name() string {
 func (c *MetricCollector) CollectMetric(ctx context.Context, app string) (float64, error) {
 	query := fas.ExpandMetricQuery(ctx, c.query, app)
 
-	result, warnings, err := c.api.Query(context.Background(), query, time.Now())
+	result, warnings, err := c.api.Query(ctx, query, time.Now())
 	if err != nil {
 		return 0, err
 	} else if len(warnings) > 0 {
@@ -98,7 +98,7 @@ func NewMachineMetricCollector(address, query, token string) (*MachineMetricColl
 func (c *MachineMetricCollector) CollectMachineMetrics(ctx context.Context, app string) (map[string]float64, error) {
 	query := fas.ExpandMetricQuery(ctx, c.query, app)
 
-	result, warnings, err := c.api.Query(context.Background(), query, time.Now())
+	result, warnings, err := c.api.Query(ctx, query, time.Now())
 	if err != nil {
 		return nil, err
 	} else if len(warnings) > 0 {
